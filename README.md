@@ -15,13 +15,20 @@
 - [Coqui TTS](https://github.com/coqui-ai/TTS)
 - ffmpeg
 - [whatsapp-api](https://github.com/chrishubert/whatsapp-api)
+- gcc
+- espeak-ng / espeak
 - Unsplash API key
 - OpenRouter API key
+- You may need python3-dev or equivelant providing Python.h
 
 ## Installation
 1. Clone the repository.
-2. Install dependencies using [uv](https://github.com/astral-sh/uv):
+2. Install dependencies using [uv](https://github.com/astral-sh/uv): (example for debian based systems with apt)
    ```bash
+   sudo apt update
+   sudo apt install python3-dev espeak-ng gcc ffmpeg
+   uv venv
+   source .venv/bin/activate
    uv pip install .
    ```
 3. Ensure ffmpeg is installed and available in your PATH.

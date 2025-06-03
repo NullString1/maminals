@@ -28,7 +28,6 @@
           buildInputs = [
             pkgs.uv
             pkgs.python310
-            pkgs.go-chromecast
             pkgs.espeak
             pkgs.ffmpeg
           ];

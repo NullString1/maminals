@@ -189,7 +189,9 @@ def download_images(
                 except Exception as e:
                     print(f"Error saving image {output_path}: {e}")
             else:
-                print(f"Failed to download {image_url}: Status code {response.status_code}")
+                print(
+                    f"Failed to download {image_url}: Status code {response.status_code}"
+                )
         except Exception as e:
             print(f"Error processing image URL {image_url}: {e}")
     return output_paths
@@ -263,9 +265,7 @@ def generate_animal_info(animal_name: str) -> str:
     )
     if response.status_code == 200:
         data = response.json()
-        return data["choices"][0]["message"][
-            "content"
-        ].strip()
+        return data["choices"][0]["message"]["content"].strip()
     else:
         return f"Error: {response.status_code} - {response.text}"
 
@@ -357,6 +357,8 @@ def generate_audio(
     import torch
     import ffmpeg.audio as ffmpeg
 
+    os.makedirs("output_audio", exist_ok=True)
+
     animal_info = animal_info.replace("*", "")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -428,9 +430,11 @@ def main():
 
         chat_id = os.environ.get("WHATSAPP_CHAT_ID")
         if not chat_id:
-            print("WhatsApp chat ID not set. Please set the WHATSAPP_CHAT_ID environment variable.")
+            print(
+                "WhatsApp chat ID not set. Please set the WHATSAPP_CHAT_ID environment variable."
+            )
         else:
-            send_video(video_file_path, chat_id, animal_name)
+            send_video(video_file_path, chat_id)
 
         print("Cleanup: Removing temporary files...")
 
