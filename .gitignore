@@ -1,0 +1,14 @@
+.venv
+.direnv
+output_audio
+output_images
+output_video
+__pycache__
+*.index
+*.wav
+previous_animal_names.txt
+*.pt
+*.pth
+.envrc
+flake.lock
+.ruff_cache
