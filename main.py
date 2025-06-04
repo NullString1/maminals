@@ -29,7 +29,10 @@ def send_video(video_path: str, chat_id: str) -> None:
     except Exception as e:
         print(f"Error reading video file: {e}")
         return
-    video_url = resp.json().get("data", {}).get("url", "")
+    video_url = resp.json().get("data", {}).get("url", "").split("/")
+    video_url.insert(3, "dl")
+    video_url = "/".join(video_url)
+
     if not video_url:
         print(f"Failed to upload video. Response: {resp.text}")
         return
