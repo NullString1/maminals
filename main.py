@@ -17,20 +17,28 @@ def send_video(video_path: str, chat_id: str) -> None:
     from base64 import b64encode
 
     url = "http://127.0.0.1:3000/client/sendMessage/ABCD"
+    # try:
+    #     with open(video_path, "rb") as video_file:
+    #         encoded_data = b64encode(video_file.read()).decode()
+    # except Exception as e:
+    #     print(f"Error reading video file: {e}")
+    #     return
     try:
         with open(video_path, "rb") as video_file:
-            encoded_data = b64encode(video_file.read()).decode()
+            resp = post("https://tmpfiles.org/api/v1/upload", files={"file": video_file})
     except Exception as e:
         print(f"Error reading video file: {e}")
         return
+    video_url = resp.json().get("data", {}).get("url", "")
+    if not video_url:
+        print(f"Failed to upload video. Response: {resp.text}")
+        return
+    else:
+        print(f"Video uploaded successfully. URL: {video_url}")
     data = {
         "chatId": chat_id,
-        "contentType": "MessageMedia",
-        "content": {
-            "mimetype": "video/mp4",
-            "filename": os.path.basename(video_path),
-            "data": encoded_data,
-        },
+        "contentType": "MessageMediaFromURL",
+        "content": video_url
     }
     try:
         response = post(url, json=data)
