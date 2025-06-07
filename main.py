@@ -1,6 +1,29 @@
 import os
+import logging
 from requests import post, get
 from json import loads, dumps
+from pathlib import Path
+from typing import Optional
+
+# --- Configuration ---
+OUTPUT_IMAGE_DIR = Path("output_images")
+OUTPUT_AUDIO_DIR = Path("output_audio")
+OUTPUT_VIDEO_DIR = Path("output_video")
+FFMPEG_RESOLUTION = (720, 1280)  # (width, height) for 9:16
+FFMPEG_ASPECT = 9 / 16
+FFMPEG_FPS = 15
+FFMPEG_VF_FILTER = (
+    f"scale='if(gt(a,{FFMPEG_ASPECT}),{FFMPEG_RESOLUTION[0]},-2)':'if(gt(a,{FFMPEG_ASPECT}),-2,{FFMPEG_RESOLUTION[1]})',"
+    f"pad={FFMPEG_RESOLUTION[0]}:{FFMPEG_RESOLUTION[1]}:({FFMPEG_RESOLUTION[0]}-iw)/2:({FFMPEG_RESOLUTION[1]}-ih)/2:black,"
+    f"crop={FFMPEG_RESOLUTION[0]}:{FFMPEG_RESOLUTION[1]}"
+)
+
+# --- Logging Setup ---
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
 def send_video(video_path: str, chat_id: str) -> None:
@@ -14,32 +37,24 @@ def send_video(video_path: str, chat_id: str) -> None:
     Returns:
         None
     """
-    from base64 import b64encode
-
     url = "http://127.0.0.1:3000/client/sendMessage/ABCD"
-    # try:
-    #     with open(video_path, "rb") as video_file:
-    #         encoded_data = b64encode(video_file.read()).decode()
-    # except Exception as e:
-    #     print(f"Error reading video file: {e}")
-    #     return
     try:
         with open(video_path, "rb") as video_file:
             resp = post(
                 "https://tmpfiles.org/api/v1/upload", files={"file": video_file}
             )
     except Exception as e:
-        print(f"Error reading video file: {e}")
+        logger.error(f"Error reading video file: {e}")
         return
     video_url = resp.json().get("data", {}).get("url", "").split("/")
     video_url.insert(3, "dl")
     video_url = "/".join(video_url)
 
     if not video_url:
-        print(f"Failed to upload video. Response: {resp.text}")
+        logger.error(f"Failed to upload video. Response: {resp.text}")
         return
     else:
-        print(f"Video uploaded successfully. URL: {video_url}")
+        logger.info(f"Video uploaded successfully. URL: {video_url}")
     data = {
         "chatId": chat_id,
         "contentType": "MessageMediaFromURL",
@@ -48,13 +63,13 @@ def send_video(video_path: str, chat_id: str) -> None:
     try:
         response = post(url, json=data)
         if response.status_code == 200:
-            print(f"Video sent successfully to chat {chat_id}")
+            logger.info(f"Video sent successfully to chat {chat_id}")
         else:
-            print(
+            logger.error(
                 f"Failed to send video. Status code: {response.status_code}, Response: {response.text}"
             )
     except Exception as e:
-        print(f"Error sending video: {e}")
+        logger.error(f"Error sending video: {e}")
 
 
 def create_video_from_audio_and_images(
@@ -63,6 +78,7 @@ def create_video_from_audio_and_images(
     animal_name: str,
     output_path: str = "output_video/{animal_name}.mp4",
     duration: int = None,
+    keep_images: bool = False,
 ) -> str:
     """
     Create a video from the given audio file and a list of image files using ffmpeg.
@@ -80,40 +96,33 @@ def create_video_from_audio_and_images(
     Returns:
         str: Path to the generated video file.
     """
-    from subprocess import run
-    from pathlib import Path
+    import subprocess
+    import tempfile
 
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    OUTPUT_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
     if not image_paths:
         raise ValueError("No image paths provided.")
 
     if duration is None:
-        import wave
-        import contextlib
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "json",
+                str(audio_path),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        duration = float(loads(result.stdout)["format"]["duration"])
 
-        if audio_path.endswith(".mp3"):
-            result = run(
-                [
-                    "ffprobe",
-                    "-v",
-                    "error",
-                    "-show_entries",
-                    "format=duration",
-                    "-of",
-                    "json",
-                    audio_path,
-                ],
-                capture_output=True,
-                text=True,
-            )
-            duration = float(loads(result.stdout)["format"]["duration"])
-        else:
-            with contextlib.closing(wave.open(audio_path, "r")) as f:
-                frames = f.getnframes()
-                rate = f.getframerate()
-                duration = frames / float(rate)
-    list_file = "ffmpeg_images.txt"
-    with open(list_file, "w") as f:
+    with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".txt") as f:
+        list_file = f.name
         if len(image_paths) == 1:
             abs_path = Path(image_paths[0]).resolve()
             f.write(f"file '{abs_path}'\nduration {duration}\n")
@@ -124,11 +133,9 @@ def create_video_from_audio_and_images(
                 abs_path = Path(img).resolve()
                 f.write(f"file '{abs_path}'\nduration {per_image}\n")
             f.write(f"file '{abs_path}'\n")
-    output_path = output_path.format(animal_name=animal_name)
-    # Use crop and pad to fit images to a fixed aspect ratio (9:16, 720x1280) for mobile phones without stretching
-    # 1. Scale image to fit inside 720x1280, preserving aspect ratio
-    # 2. Pad with black bars if needed, then crop to even dimensions
-    vf_filter = "scale='if(gt(a,9/16),720,-2)':'if(gt(a,9/16),-2,1280)',pad=720:1280:(720-iw)/2:(1280-ih)/2:black,crop=720:1280"
+
+    output_path = Path(str(output_path).format(animal_name=animal_name))
+    vf_filter = FFMPEG_VF_FILTER
     cmd = [
         "ffmpeg",
         "-y",
@@ -139,7 +146,7 @@ def create_video_from_audio_and_images(
         "-i",
         list_file,
         "-i",
-        audio_path,
+        str(audio_path),
         "-vf",
         vf_filter,
         "-c:v",
@@ -147,29 +154,28 @@ def create_video_from_audio_and_images(
         "-c:a",
         "aac",
         "-r",
-        "15",
+        str(FFMPEG_FPS),
         "-shortest",
-        output_path,
+        str(output_path),
     ]
     try:
-        result = run(cmd, capture_output=True, text=True)
-    except Exception as e:
-        print(f"Error running ffmpeg: {e}")
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error running ffmpeg: {e.stderr}")
         return ""
-    try:
-        os.remove(list_file)
-    except Exception as e:
-        print(f"Error removing ffmpeg list file: {e}")
-    for img in image_paths:
+    finally:
         try:
-            if os.path.exists(img):
-                os.remove(img)
+            Path(list_file).unlink(missing_ok=True)
         except Exception as e:
-            print(f"Error removing image {img}: {e}")
-    if result.returncode != 0:
-        print(f"ffmpeg failed: {result.stderr}")
-        return ""
-    return output_path
+            logger.warning(f"Error removing ffmpeg list file: {e}")
+    # Optionally clean up images (see below for CLI flag)
+    if keep_images:
+        for img in image_paths:
+            try:
+                Path(img).unlink(missing_ok=True)
+            except Exception as e:
+                logger.warning(f"Error removing image {img}: {e}")
+    return str(output_path)
 
 
 def download_images(
@@ -186,17 +192,31 @@ def download_images(
     Returns:
         list[str]: List of paths to the saved images.
     """
-    os.makedirs(output_dir, exist_ok=True)
-    output_paths = []
-    for image_url in image_urls:
+    OUTPUT_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from tqdm import tqdm
+    import re
+
+    def sanitize_filename(filename: str) -> str:
+        # Remove or replace problematic characters for all filesystems
+        return re.sub(r"[^\w\-.]", "_", filename)
+
+    def download_one(image_url: str) -> Optional[str]:
         try:
+            # Only allow image URLs with valid image extensions
+            valid_exts = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp")
+            url_lower = image_url.lower()
+            if not any(url_lower.endswith(ext) for ext in valid_exts):
+                logger.info(f"Skipping non-image URL: {image_url}")
+                return None
             if image_url.startswith("https://unsplash.com/photos/"):
                 filename = (
                     f"{animal_name}.{image_url.split('photo-')[1].split('?')[0]}.jpeg"
                 )
             else:
                 filename = image_url.split("/")[-1]
-            output_path = os.path.join(output_dir, filename)
+            filename = sanitize_filename(filename)
+            output_path = OUTPUT_IMAGE_DIR / filename
             try:
                 response = get(
                     image_url,
@@ -206,22 +226,35 @@ def download_images(
                     },
                 )
             except Exception as e:
-                print(f"Error requesting {image_url}: {e}")
-                continue
+                logger.warning(f"Error requesting {image_url}: {e}")
+                return None
             if response.status_code == 200:
                 try:
                     with open(output_path, "wb") as f:
                         for chunk in response.iter_content(1024):
                             f.write(chunk)
-                    output_paths.append(output_path)
+                    return str(output_path)
                 except Exception as e:
-                    print(f"Error saving image {output_path}: {e}")
+                    logger.warning(f"Error saving image {output_path}: {e}")
+                    return None
             else:
-                print(
+                logger.warning(
                     f"Failed to download {image_url}: Status code {response.status_code}"
                 )
+                return None
         except Exception as e:
-            print(f"Error processing image URL {image_url}: {e}")
+            logger.warning(f"Error processing image URL {image_url}: {e}")
+            return None
+
+    output_paths = []
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [executor.submit(download_one, url) for url in image_urls]
+        for future in tqdm(
+            as_completed(futures), total=len(futures), desc="Downloading images"
+        ):
+            result = future.result()
+            if result:
+                output_paths.append(result)
     return output_paths
 
 
@@ -356,31 +389,41 @@ def get_animal_name() -> str:
             "API key not found. Please set the OPENROUTER_API_KEY environment variable."
         )
 
-    response = post(
-        url="https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        data=dumps(
-            {
-                "model": "google/gemma-3n-e4b-it:free",
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": f"Give me the name of an animal that I can use to generate information about it. The animal can be any species, including mammals, birds, reptiles, amphibians, fish, or insects. Return only the name of the animal without any additional text. Do not repeat the same animal name that has been used in previous requests. Here are some previously generated animal names: {', '.join(read_previous_animal_names())}.",
-                    }
-                ],
-            }
-        ),
-    )
-    if response.status_code == 200:
-        data: str = response.json()["choices"][0]["message"]["content"]
-        data = data.strip()
-        save_animal_name(data)
-        return data
-    else:
-        return f"Error: {response.status_code} - {response.text}"
+    max_retries = 5
+    previous_names = read_previous_animal_names()
+    for attempt in range(max_retries):
+        response = post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            data=dumps(
+                {
+                    "model": "google/gemma-3n-e4b-it:free",
+                    "temperature": 2.0,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": f"Give me the name of an animal that I can use to generate information about it. The animal can be any species, including mammals, birds, reptiles, amphibians, fish, or insects. Return only the name of the animal without any additional text. Do not repeat the same animal name that has been used in previous requests. Here are some previously generated animal names: {', '.join(previous_names[-20:])}.",
+                        }
+                    ],
+                }
+            ),
+        )
+        if response.status_code == 200:
+            data: str = response.json()["choices"][0]["message"]["content"]
+            data = data.strip()
+            if data not in previous_names:
+                save_animal_name(data)
+                return data
+            else:
+                logger.warning(
+                    f"Model returned a duplicate animal name: {data}. Retrying..."
+                )
+        else:
+            return f"Error: {response.status_code} - {response.text}"
+    return "Error: Could not generate a unique animal name after several attempts."
 
 
 def read_previous_animal_names() -> list:
@@ -408,7 +451,7 @@ def save_animal_name(animal_name: str) -> None:
         None
     """
     with open("previous_animal_names.txt", "a") as file:
-        file.write(animal_name)
+        file.write(animal_name + "\n")
 
 
 def generate_audio(
@@ -427,7 +470,6 @@ def generate_audio(
     """
     from TTS.api import TTS
     import torch
-    import ffmpeg.audio as ffmpeg
 
     os.makedirs("output_audio", exist_ok=True)
 
@@ -447,14 +489,7 @@ def generate_audio(
         speaker_wav=speaker_wav,
         language="en" if model.startswith("tts_models/multilingual") else None,
     )
-    if ffmpeg.a_speed(
-        f"output_audio/{animal_name}.wav", 1.0, f"output_audio/{animal_name}.mp3"
-    ):
-        os.remove(f"output_audio/{animal_name}.wav")
-        return f"output_audio/{animal_name}.mp3"
-    else:
-        print(f"Error converting audio to MP3 format for {animal_name}.wav")
-        return f"output_audio/{animal_name}.wav"
+    return f"output_audio/{animal_name}.wav"
 
 
 def main():
@@ -473,7 +508,34 @@ def main():
         type=str,
         help="Path to the speaker WAV file for voice cloning (optional)",
     )
+    parser.add_argument(
+        "--keep-images",
+        action="store_true",
+        help="Keep downloaded images after video creation (default: delete)",
+    )
+    parser.add_argument(
+        "--output-resolution",
+        type=str,
+        default=f"{FFMPEG_RESOLUTION[0]}x{FFMPEG_RESOLUTION[1]}",
+        help="Output video resolution as WIDTHxHEIGHT (default: 720x1280)",
+    )
     args, _ = parser.parse_known_args()
+
+    # Update ffmpeg filter if output resolution is overridden
+    if args.output_resolution:
+        try:
+            width, height = map(int, args.output_resolution.lower().split("x"))
+            globals()["FFMPEG_RESOLUTION"] = (width, height)
+            aspect = width / height
+            globals()["FFMPEG_VF_FILTER"] = (
+                f"scale='if(gt(a,{aspect}),{width},-2)':'if(gt(a,{aspect}),-2,{height})',"
+                f"pad={width}:{height}:({width}-iw)/2:({height}-ih)/2:black,"
+                f"crop={width}:{height}"
+            )
+        except Exception as e:
+            logger.warning(
+                f"Invalid --output-resolution: {args.output_resolution}, using default. Error: {e}"
+            )
 
     try:
         if args.animal_name:
@@ -482,69 +544,65 @@ def main():
             animal_name = get_animal_name().strip()
 
         if animal_name.startswith("Error:"):
-            print(f"Failed to generate animal name: {animal_name}")
+            logger.error(f"Failed to generate animal name: {animal_name}")
             sys.exit(1)
-        print(f"Animal Name: {animal_name}")
+        logger.info(f"Animal Name: {animal_name}")
 
         animal_info = generate_animal_info(animal_name)
         if animal_info.startswith("Error:"):
-            print(f"Failed to generate animal info: {animal_info}")
+            logger.error(f"Failed to generate animal info: {animal_info}")
             sys.exit(1)
-        print(f"Animal Info: {animal_info}")
+        logger.info(f"Animal Info: {animal_info}")
 
         audio_file_path = generate_audio(
             animal_name, animal_info, speaker_wav=args.speaker_wav
         )
-        print(f"Audio file generated at: {audio_file_path}")
+        logger.info(f"Audio file generated at: {audio_file_path}")
 
         image_urls = get_animal_photo_urls_wikimedia(animal_name)
         if isinstance(image_urls, str):
-            print(f"Failed to retrieve image URLs from wikimedia: {image_urls}")
+            logger.warning(
+                f"Failed to retrieve image URLs from wikimedia: {image_urls}"
+            )
+            logger.info("Trying to retrieve image URLs from Unsplash...")
             image_urls = get_animal_photo_urls_unsplash(animal_name)
             if isinstance(image_urls, str):
-                print(f"Failed to retrieve image URLs from Unsplash: {image_urls}")
+                logger.error(
+                    f"Failed to retrieve image URLs from Unsplash: {image_urls}"
+                )
                 sys.exit(1)
-        print(f"Image URLs: {image_urls}")
+        logger.debug(f"Image URLs: {image_urls}")
 
         image_paths = download_images(image_urls, animal_name)
         if len(image_paths) == 0:
-            print("No images were downloaded. Exiting.")
+            logger.error("No images were downloaded. Exiting.")
             sys.exit(1)
-        print(f"Images downloaded at: {image_paths}")
+        logger.debug(f"Images downloaded at: {image_paths}")
 
         video_file_path = create_video_from_audio_and_images(
-            audio_file_path, image_paths, animal_name
+            audio_file_path, image_paths, animal_name, keep_images=args.keep_images
         )
         if video_file_path == "":
-            print("Failed to create video from audio and images.")
+            logger.error("Failed to create video from audio and images.")
             sys.exit(1)
-        print(f"Video file created at: {video_file_path}")
+        logger.info(f"Video file created at: {video_file_path}")
 
         chat_id = os.environ.get("WHATSAPP_CHAT_ID")
         if not chat_id:
-            print(
+            logger.warning(
                 "WhatsApp chat ID not set. Please set the WHATSAPP_CHAT_ID environment variable."
             )
         else:
             send_video(video_file_path, chat_id)
 
-        print("Cleanup: Removing temporary files...")
-
-        for img in image_paths:
-            try:
-                if os.path.exists(img):
-                    os.remove(img)
-                    print(f"Removed image: {img}")
-            except Exception as e:
-                print(f"Error removing image {img}: {e}")
+        # Optionally clean up audio file
         try:
-            if os.path.exists(audio_file_path):
-                os.remove(audio_file_path)
-                print(f"Removed audio file: {audio_file_path}")
+            Path(audio_file_path).unlink(missing_ok=True)
+            logger.info(f"Removed audio file: {audio_file_path}")
         except Exception as e:
-            print(f"Error removing audio file: {e}")
+            logger.warning(f"Error removing audio file: {e}")
     except Exception as e:
-        print(f"Unexpected error in main: {e}")
+        logger.error(f"Unexpected error in main: {e}")
 
 
 if __name__ == "__main__":

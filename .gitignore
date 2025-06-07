@@ -12,4 +12,5 @@ previous_animal_names.txt
 .envrc
 flake.lock
 .ruff_cache
-whatsapp_api
+whatsapp-api
+Retrieval-based-Voice-Conversion-WebUI
