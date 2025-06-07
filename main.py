@@ -198,7 +198,13 @@ def download_images(
                 filename = image_url.split("/")[-1]
             output_path = os.path.join(output_dir, filename)
             try:
-                response = get(image_url, stream=True, headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"})
+                response = get(
+                    image_url,
+                    stream=True,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+                    },
+                )
             except Exception as e:
                 print(f"Error requesting {image_url}: {e}")
                 continue
@@ -251,6 +257,7 @@ def get_animal_photo_urls_unsplash(animal_name: str) -> list[str] | str:
     else:
         return f"Error: {response.status_code} - {response.text}"
 
+
 def get_animal_photo_urls_wikimedia(animal_name: str) -> list[str] | str:
     """
     Retrieve URLs of animal images from Wikimedia Commons
@@ -270,7 +277,7 @@ def get_animal_photo_urls_wikimedia(animal_name: str) -> list[str] | str:
         "prop": "imageinfo",
         "redirects": 1,
         "gimlimit": "200",
-        "iiprop": "url"
+        "iiprop": "url",
     }
     try:
         response = get(url, params=params, timeout=10)
@@ -282,7 +289,9 @@ def get_animal_photo_urls_wikimedia(animal_name: str) -> list[str] | str:
             for page in pages.values():
                 imageinfo = page.get("imageinfo", [])
                 if imageinfo:
-                    image_urls.append(imageinfo[0].get("thumburl") or imageinfo[0].get("url"))
+                    image_urls.append(
+                        imageinfo[0].get("thumburl") or imageinfo[0].get("url")
+                    )
             if image_urls:
                 return image_urls
             else:
@@ -291,6 +300,7 @@ def get_animal_photo_urls_wikimedia(animal_name: str) -> list[str] | str:
             return f"Error: {response.status_code} - {response.text}"
     except Exception as e:
         return f"Error: {e}"
+
 
 def generate_animal_info(animal_name: str) -> str:
     """
@@ -516,7 +526,7 @@ def main():
                 "WhatsApp chat ID not set. Please set the WHATSAPP_CHAT_ID environment variable."
             )
         else:
-            pass #send_video(video_file_path, chat_id)
+            send_video(video_file_path, chat_id)
 
         print("Cleanup: Removing temporary files...")
 
