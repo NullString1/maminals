@@ -25,7 +25,9 @@ def send_video(video_path: str, chat_id: str) -> None:
     #     return
     try:
         with open(video_path, "rb") as video_file:
-            resp = post("https://tmpfiles.org/api/v1/upload", files={"file": video_file})
+            resp = post(
+                "https://tmpfiles.org/api/v1/upload", files={"file": video_file}
+            )
     except Exception as e:
         print(f"Error reading video file: {e}")
         return
@@ -41,7 +43,7 @@ def send_video(video_path: str, chat_id: str) -> None:
     data = {
         "chatId": chat_id,
         "contentType": "MessageMediaFromURL",
-        "content": video_url
+        "content": video_url,
     }
     try:
         response = post(url, json=data)
@@ -397,6 +399,7 @@ def generate_audio(
 
 def main():
     import argparse
+    import sys
 
     parser = argparse.ArgumentParser(description="Generate animal info and audio.")
     parser.add_argument(
@@ -417,26 +420,41 @@ def main():
             animal_name = args.animal_name.strip()
         else:
             animal_name = get_animal_name().strip()
+
         if animal_name.startswith("Error:"):
             print(f"Failed to generate animal name: {animal_name}")
-            return
+            sys.exit(1)
         print(f"Animal Name: {animal_name}")
+
         animal_info = generate_animal_info(animal_name)
         if animal_info.startswith("Error:"):
             print(f"Failed to generate animal info: {animal_info}")
-            return
+            sys.exit(1)
         print(f"Animal Info: {animal_info}")
+
         audio_file_path = generate_audio(
             animal_name, animal_info, speaker_wav=args.speaker_wav
         )
         print(f"Audio file generated at: {audio_file_path}")
+
         image_urls = get_animal_photo_urls_unsplash(animal_name)
+        if isinstance(image_urls, str):
+            print(f"Failed to retrieve image URLs: {image_urls}")
+            sys.exit(1)
         print(f"Image URLs: {image_urls}")
+
         image_paths = download_images(image_urls, animal_name)
+        if len(image_paths) == 0:
+            print("No images were downloaded. Exiting.")
+            sys.exit(1)
         print(f"Images downloaded at: {image_paths}")
+
         video_file_path = create_video_from_audio_and_images(
             audio_file_path, image_paths, animal_name
         )
+        if video_file_path == "":
+            print("Failed to create video from audio and images.")
+            sys.exit(1)
         print(f"Video file created at: {video_file_path}")
 
         chat_id = os.environ.get("WHATSAPP_CHAT_ID")
