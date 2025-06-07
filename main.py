@@ -204,16 +204,16 @@ def download_images(
     def download_one(image_url: str) -> Optional[str]:
         try:
             # Only allow image URLs with valid image extensions
-            valid_exts = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp")
-            url_lower = image_url.lower()
-            if not any(url_lower.endswith(ext) for ext in valid_exts):
-                logger.info(f"Skipping non-image URL: {image_url}")
-                return None
             if image_url.startswith("https://unsplash.com/photos/"):
                 filename = (
                     f"{animal_name}.{image_url.split('photo-')[1].split('?')[0]}.jpeg"
                 )
             else:
+                valid_exts = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp")
+                url_lower = image_url.lower()
+                if not any(url_lower.endswith(ext) for ext in valid_exts):
+                    logger.info(f"Skipping non-image URL: {image_url}")
+                    return None
                 filename = image_url.split("/")[-1]
             filename = sanitize_filename(filename)
             output_path = OUTPUT_IMAGE_DIR / filename
