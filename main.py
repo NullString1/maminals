@@ -125,6 +125,10 @@ def create_video_from_audio_and_images(
                 f.write(f"file '{abs_path}'\nduration {per_image}\n")
             f.write(f"file '{abs_path}'\n")
     output_path = output_path.format(animal_name=animal_name)
+    # Use crop and pad to fit images to a fixed aspect ratio (9:16, 720x1280) for mobile phones without stretching
+    # 1. Scale image to fit inside 720x1280, preserving aspect ratio
+    # 2. Pad with black bars if needed, then crop to even dimensions
+    vf_filter = "scale='if(gt(a,9/16),720,-2)':'if(gt(a,9/16),-2,1280)',pad=720:1280:(720-iw)/2:(1280-ih)/2:black,crop=720:1280"
     cmd = [
         "ffmpeg",
         "-y",
@@ -136,6 +140,8 @@ def create_video_from_audio_and_images(
         list_file,
         "-i",
         audio_path,
+        "-vf",
+        vf_filter,
         "-c:v",
         "libx264",
         "-c:a",
@@ -184,12 +190,15 @@ def download_images(
     output_paths = []
     for image_url in image_urls:
         try:
-            filename = (
-                f"{animal_name}.{image_url.split('photo-')[1].split('?')[0]}.jpeg"
-            )
+            if image_url.startswith("https://unsplash.com/photos/"):
+                filename = (
+                    f"{animal_name}.{image_url.split('photo-')[1].split('?')[0]}.jpeg"
+                )
+            else:
+                filename = image_url.split("/")[-1]
             output_path = os.path.join(output_dir, filename)
             try:
-                response = get(image_url, stream=True)
+                response = get(image_url, stream=True, headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"})
             except Exception as e:
                 print(f"Error requesting {image_url}: {e}")
                 continue
@@ -242,6 +251,46 @@ def get_animal_photo_urls_unsplash(animal_name: str) -> list[str] | str:
     else:
         return f"Error: {response.status_code} - {response.text}"
 
+def get_animal_photo_urls_wikimedia(animal_name: str) -> list[str] | str:
+    """
+    Retrieve URLs of animal images from Wikimedia Commons
+
+    Args:
+        animal_name (str): Name of the animal to search for.
+
+    Returns:
+        list[str] | str: List of image URLs or error message.
+    """
+    url = "https://commons.wikimedia.org/w/api.php"
+    params = {
+        "action": "query",
+        "format": "json",
+        "generator": "images",
+        "titles": animal_name,
+        "prop": "imageinfo",
+        "redirects": 1,
+        "gimlimit": "200",
+        "iiprop": "url"
+    }
+    try:
+        response = get(url, params=params, timeout=10)
+        print(response.text)
+        if response.status_code == 200:
+            data = response.json()
+            pages = data.get("query", {}).get("pages", {})
+            image_urls = []
+            for page in pages.values():
+                imageinfo = page.get("imageinfo", [])
+                if imageinfo:
+                    image_urls.append(imageinfo[0].get("thumburl") or imageinfo[0].get("url"))
+            if image_urls:
+                return image_urls
+            else:
+                return "No images found."
+        else:
+            return f"Error: {response.status_code} - {response.text}"
+    except Exception as e:
+        return f"Error: {e}"
 
 def generate_animal_info(animal_name: str) -> str:
     """
@@ -372,6 +421,7 @@ def generate_audio(
 
     os.makedirs("output_audio", exist_ok=True)
 
+    animal_name = animal_name.replace(" ", "_").replace("/", "_")
     animal_info = animal_info.replace("*", "")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -437,10 +487,13 @@ def main():
         )
         print(f"Audio file generated at: {audio_file_path}")
 
-        image_urls = get_animal_photo_urls_unsplash(animal_name)
+        image_urls = get_animal_photo_urls_wikimedia(animal_name)
         if isinstance(image_urls, str):
-            print(f"Failed to retrieve image URLs: {image_urls}")
-            sys.exit(1)
+            print(f"Failed to retrieve image URLs from wikimedia: {image_urls}")
+            image_urls = get_animal_photo_urls_unsplash(animal_name)
+            if isinstance(image_urls, str):
+                print(f"Failed to retrieve image URLs from Unsplash: {image_urls}")
+                sys.exit(1)
         print(f"Image URLs: {image_urls}")
 
         image_paths = download_images(image_urls, animal_name)
@@ -463,7 +516,7 @@ def main():
                 "WhatsApp chat ID not set. Please set the WHATSAPP_CHAT_ID environment variable."
             )
         else:
-            send_video(video_file_path, chat_id)
+            pass #send_video(video_file_path, chat_id)
 
         print("Cleanup: Removing temporary files...")
 
