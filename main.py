@@ -83,6 +83,7 @@ def create_video_from_audio_and_images(
     keep_images: bool = False,
 ) -> str:
     import tempfile
+
     """
     Create a video from the given audio file and a list of image files using ffmpeg.
 
@@ -479,16 +480,27 @@ def generate_audio(
 
     if speaker_wav and os.path.exists(speaker_wav):
         print(f"Using speaker WAV file: {speaker_wav}")
+        # Use XTTS v2 for voice cloning
         model = "tts_models/multilingual/multi-dataset/xtts_v2"
+        tts = TTS(model_name=model, progress_bar=True).to(device)
+        tts.tts_to_file(
+            text=animal_info,
+            file_path=f"output_audio/{animal_name}.wav",
+            speaker_wav=speaker_wav,
+            language="en",
+            # Add these parameters for better quality
+            temperature=0.75,  # Controls randomness (0.1-1.0)
+            length_penalty=1.0,  # Controls speech speed
+            repetition_penalty=5.0,  # Reduces repetition
+            top_k=50,  # Limits vocabulary for more consistent output
+            top_p=0.85,  # Nucleus sampling for better quality
+        )
     else:
+        # Fallback to standard TTS
         model = "tts_models/en/ljspeech/vits"
-    tts = TTS(model_name=model, progress_bar=True).to(device)
-    tts.tts_to_file(
-        text=animal_info,
-        file_path=f"output_audio/{animal_name}.wav",
-        speaker_wav=speaker_wav,
-        language="en" if model.startswith("tts_models/multilingual") else None,
-    )
+        tts = TTS(model_name=model, progress_bar=True).to(device)
+        tts.tts_to_file(text=animal_info, file_path=f"output_audio/{animal_name}.wav")
+
     return f"output_audio/{animal_name}.wav"
 
 
