@@ -4,6 +4,8 @@ from requests import post, get
 from json import loads, dumps
 from pathlib import Path
 from typing import Optional
+import subprocess
+import sys
 
 # --- Configuration ---
 OUTPUT_IMAGE_DIR = Path("output_images")
@@ -80,6 +82,7 @@ def create_video_from_audio_and_images(
     duration: int = None,
     keep_images: bool = False,
 ) -> str:
+    import tempfile
     """
     Create a video from the given audio file and a list of image files using ffmpeg.
 
@@ -96,9 +99,6 @@ def create_video_from_audio_and_images(
     Returns:
         str: Path to the generated video file.
     """
-    import subprocess
-    import tempfile
-
     OUTPUT_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
     if not image_paths:
         raise ValueError("No image paths provided.")
@@ -492,9 +492,43 @@ def generate_audio(
     return f"output_audio/{animal_name}.wav"
 
 
+def check_file_duration(file_path: str, min_duration: float = 30.0) -> bool:
+    """
+    Check if an audio or video file meets the minimum duration requirement.
+
+    Args:
+        file_path (str): Path to the audio or video file.
+        min_duration (float): Minimum required duration in seconds. Defaults to 30.0.
+
+    Returns:
+        bool: True if duration meets requirement, False otherwise.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "json",
+                str(file_path),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        duration = float(loads(result.stdout)["format"]["duration"])
+        logger.info(f"File {file_path} duration: {duration:.2f} seconds")
+        return duration >= min_duration
+    except (subprocess.CalledProcessError, KeyError, ValueError, TypeError) as e:
+        logger.error(f"Error checking duration for {file_path}: {e}")
+        return False
+
+
 def main():
     import argparse
-    import sys
 
     parser = argparse.ArgumentParser(description="Generate animal info and audio.")
     parser.add_argument(
@@ -559,6 +593,13 @@ def main():
         )
         logger.info(f"Audio file generated at: {audio_file_path}")
 
+        # Check audio duration requirement (minimum 30 seconds)
+        if not check_file_duration(audio_file_path, 30.0):
+            logger.error(
+                f"Generated audio file {audio_file_path} is shorter than 30 seconds. Exiting."
+            )
+            sys.exit(1)
+
         image_urls = get_animal_photo_urls_wikimedia(animal_name)
         if isinstance(image_urls, str):
             logger.warning(
@@ -586,6 +627,13 @@ def main():
             logger.error("Failed to create video from audio and images.")
             sys.exit(1)
         logger.info(f"Video file created at: {video_file_path}")
+
+        # Check video duration requirement (minimum 30 seconds)
+        if not check_file_duration(video_file_path, 30.0):
+            logger.error(
+                f"Generated video file {video_file_path} is shorter than 30 seconds. Exiting."
+            )
+            sys.exit(1)
 
         chat_id = os.environ.get("WHATSAPP_CHAT_ID")
         if not chat_id:
