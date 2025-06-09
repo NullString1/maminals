@@ -170,10 +170,11 @@ def create_video_from_audio_and_images(
         except Exception as e:
             logger.warning(f"Error removing ffmpeg list file: {e}")
     # Optionally clean up images (see below for CLI flag)
-    if keep_images:
+    if not keep_images:
         for img in image_paths:
             try:
                 Path(img).unlink(missing_ok=True)
+                logger.info(f"Removed image: {img}")
             except Exception as e:
                 logger.warning(f"Error removing image {img}: {e}")
     return str(output_path)
