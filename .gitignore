@@ -14,3 +14,4 @@ flake.lock
 .ruff_cache
 whatsapp-api
 Retrieval-based-Voice-Conversion-WebUI
+*.json

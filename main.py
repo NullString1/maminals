@@ -377,55 +377,45 @@ def generate_animal_info(animal_name: str) -> str:
         return f"Error: {response.status_code} - {response.text}"
 
 
-def get_animal_name() -> str:
+def get_animal_name(animal_list_path: Path = Path("animal_names.json")) -> str:
     """
-    Generate a random animal name that has not been used in previous requests.
+    Return a random animal name from a JSON file containing a list of animal names.
+    If the file does not exist or is empty, raise an error.
 
     Returns:
         str: A unique animal name, or an error message if the API fails.
     """
+    animal_list_path = animal_list_path.resolve()
+    if not animal_list_path.exists():
+        raise FileNotFoundError(
+            f"Animal names file not found: {animal_list_path}. Please ensure the file exists."
+        )
 
-    api_key = os.getenv("OPENROUTER_API_KEY")
-    if not api_key:
+    animal_list = animal_list_path.read_text(encoding="utf-8")
+    animal_list = loads(animal_list)
+
+    if not animal_list:
         raise ValueError(
-            "API key not found. Please set the OPENROUTER_API_KEY environment variable."
+            "Animal names list is empty. Please check the animal_names.json file."
         )
 
-    max_retries = 5
-    previous_names = read_previous_animal_names()
-    for attempt in range(max_retries):
-        response = post(
-            url="https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            data=dumps(
-                {
-                    "model": "google/gemma-3n-e4b-it:free",
-                    "temperature": 2.0,
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": f"Give me the name of an animal that I can use to generate information about it. The animal can be any species, including mammals, birds, reptiles, amphibians, fish, or insects. Return only the name of the animal without any additional text. Do not repeat the same animal name that has been used in previous requests. Here are some previously generated animal names: {', '.join(previous_names[-20:])}.",
-                        }
-                    ],
-                }
-            ),
+    import random
+
+    animal_name = random.choice(animal_list).strip()
+    if not animal_name:
+        raise ValueError(
+            "Generated animal name is empty. Please check the animal_names.json file."
         )
-        if response.status_code == 200:
-            data: str = response.json()["choices"][0]["message"]["content"]
-            data = data.strip()
-            if data not in previous_names:
-                save_animal_name(data)
-                return data
-            else:
-                logger.warning(
-                    f"Model returned a duplicate animal name: {data}. Retrying..."
-                )
-        else:
-            return f"Error: {response.status_code} - {response.text}"
-    return "Error: Could not generate a unique animal name after several attempts."
+    logger.info(f"Generated animal name: {animal_name}")
+
+    previous_names = read_previous_animal_names()
+    if animal_name in previous_names:
+        logger.warning(
+            f"Generated animal name '{animal_name}' has been used before. Generating a new name..."
+        )
+        return get_animal_name(animal_list_path)
+
+    return animal_name
 
 
 def read_previous_animal_names() -> list:
