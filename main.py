@@ -206,7 +206,7 @@ def download_images(
     def download_one(image_url: str) -> Optional[str]:
         try:
             # Only allow image URLs with valid image extensions
-            if image_url.startswith("https://unsplash.com/photos/"):
+            if image_url.startswith("https://images.unsplash.com/photo-"):
                 filename = (
                     f"{animal_name}.{image_url.split('photo-')[1].split('?')[0]}.jpeg"
                 )
