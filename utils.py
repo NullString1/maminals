@@ -1,7 +1,6 @@
 """Utility functions for file operations and validation."""
 
 import subprocess
-from json import loads
 from pathlib import Path
 from config import logger
 
@@ -22,9 +21,12 @@ def check_file_duration(file_path: str, min_duration: float = 30.0) -> bool:
         result = subprocess.run(
             [
                 "ffprobe",
-                "-v", "quiet",
-                "-show_entries", "format=duration",
-                "-of", "csv=p=0",
+                "-v",
+                "quiet",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "csv=p=0",
                 str(file_path),
             ],
             capture_output=True,

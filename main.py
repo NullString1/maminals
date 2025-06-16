@@ -78,19 +78,6 @@ def main():
             sys.exit(1)
         logger.info(f"Animal Info: {animal_info}")
 
-        # Generate audio
-        audio_file_path = generate_audio(
-            animal_name, animal_info, speaker_wav=args.speaker_wav
-        )
-        logger.info(f"Audio file generated at: {audio_file_path}")
-
-        # Check audio duration requirement (minimum 30 seconds)
-        if not check_file_duration(audio_file_path, 30.0):
-            logger.error(
-                f"Generated audio file {audio_file_path} is shorter than 30 seconds. Exiting."
-            )
-            sys.exit(1)
-
         # Get image URLs
         image_urls = get_animal_photo_urls_wikimedia(animal_name)
         if isinstance(image_urls, str):
@@ -106,12 +93,57 @@ def main():
                 sys.exit(1)
         logger.debug(f"Image URLs: {image_urls}")
 
-        # Download images
-        image_paths = download_images(image_urls, animal_name)
-        if len(image_paths) == 0:
-            logger.error("No images were downloaded. Exiting.")
-            sys.exit(1)
+        # Start image downloading and audio generation simultaneously
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from performance import PerformanceMonitor
+
+        with PerformanceMonitor("Parallel image download and audio generation"):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                # Submit both tasks concurrently
+                image_future = executor.submit(download_images, image_urls, animal_name)
+                audio_future = executor.submit(
+                    generate_audio, animal_name, animal_info, args.speaker_wav
+                )
+
+                # Wait for both to complete and get results
+                image_paths = None
+                audio_file_path = None
+
+                for future in as_completed([image_future, audio_future]):
+                    try:
+                        if future == image_future:
+                            image_paths = future.result()
+                            if image_paths is None or len(image_paths) == 0:
+                                logger.error("No images were downloaded. Exiting.")
+                                audio_future.cancel()
+                                sys.exit(1)
+                            logger.info(
+                                f"Image download completed. Downloaded {len(image_paths)} images."
+                            )
+                        elif future == audio_future:
+                            audio_file_path = future.result()
+                            if audio_file_path is None:
+                                logger.error("Audio generation failed. Exiting.")
+                                image_future.cancel()
+                                sys.exit(1)
+                            logger.info(
+                                f"Audio generation completed: {audio_file_path}"
+                            )
+                    except Exception as e:
+                        logger.error(f"Error in parallel execution: {e}")
+                        sys.exit(1)
+
         logger.debug(f"Images downloaded at: {image_paths}")
+        logger.debug(f"Audio file generated at: {audio_file_path}")
+
+        # Check audio duration requirement (minimum 30 seconds)
+        if not check_file_duration(audio_file_path, 30.0):
+            logger.error(
+                f"Generated audio file {audio_file_path} is shorter than 30 seconds. Exiting."
+            )
+            sys.exit(1)
+
+        logger.info("Starting video creation...")
 
         # Create video
         video_file_path = create_video_from_audio_and_images(

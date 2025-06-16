@@ -2,7 +2,6 @@
 
 import subprocess
 import tempfile
-from json import loads
 from pathlib import Path
 from config import OUTPUT_VIDEO_DIR, FFMPEG_FPS, FFMPEG_VF_FILTER, logger
 
@@ -44,9 +43,12 @@ def create_video_from_audio_and_images(
             result = subprocess.run(
                 [
                     "ffprobe",
-                    "-v", "quiet",
-                    "-show_entries", "format=duration",
-                    "-of", "csv=p=0",
+                    "-v",
+                    "quiet",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "csv=p=0",
                     str(audio_path),
                 ],
                 capture_output=True,
@@ -55,7 +57,11 @@ def create_video_from_audio_and_images(
                 timeout=10,
             )
             duration = float(result.stdout.strip())
-        except (subprocess.CalledProcessError, ValueError, subprocess.TimeoutExpired) as e:
+        except (
+            subprocess.CalledProcessError,
+            ValueError,
+            subprocess.TimeoutExpired,
+        ) as e:
             logger.error(f"Error getting audio duration: {e}")
             raise
 
@@ -74,25 +80,38 @@ def create_video_from_audio_and_images(
 
     output_path = Path(str(output_path).format(animal_name=animal_name))
     vf_filter = vf_filter or FFMPEG_VF_FILTER
-    
+
     # Optimized ffmpeg command with better performance settings
     cmd = [
         "ffmpeg",
         "-y",  # Overwrite output files
-        "-v", "warning",  # Reduce verbosity
-        "-f", "concat",
-        "-safe", "0",
-        "-i", list_file,
-        "-i", str(audio_path),
-        "-vf", vf_filter,
-        "-c:v", "libx264",
-        "-preset", "medium",  # Balance between speed and compression
-        "-crf", "23",  # Good quality setting
-        "-c:a", "aac",
-        "-b:a", "128k",  # Audio bitrate
-        "-r", str(FFMPEG_FPS),
+        "-v",
+        "warning",  # Reduce verbosity
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        list_file,
+        "-i",
+        str(audio_path),
+        "-vf",
+        vf_filter,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "medium",  # Balance between speed and compression
+        "-crf",
+        "23",  # Good quality setting
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",  # Audio bitrate
+        "-r",
+        str(FFMPEG_FPS),
         "-shortest",
-        "-movflags", "+faststart",  # Web optimization
+        "-movflags",
+        "+faststart",  # Web optimization
         str(output_path),
     ]
     try:
