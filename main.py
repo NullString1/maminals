@@ -4,18 +4,8 @@ import os
 import sys
 import argparse
 
-# Import all modules
+# Import only lightweight config at startup
 from config import FFMPEG_RESOLUTION, get_ffmpeg_filter, logger
-from animal_data import get_animal_name, generate_animal_info, save_animal_name
-from image_handler import (
-    download_images,
-    get_animal_photo_urls_unsplash,
-    get_animal_photo_urls_wikimedia,
-)
-from audio_generator import generate_audio
-from video_creator import create_video_from_audio_and_images
-from whatsapp_sender import send_video
-from utils import check_file_duration, cleanup_file
 
 
 def main():
@@ -58,6 +48,18 @@ def main():
             )
 
     try:
+        # Lazy imports for better startup performance
+        from animal_data import get_animal_name, generate_animal_info, save_animal_name
+        from image_handler import (
+            download_images,
+            get_animal_photo_urls_unsplash,
+            get_animal_photo_urls_wikimedia,
+        )
+        from audio_generator import generate_audio
+        from video_creator import create_video_from_audio_and_images
+        from whatsapp_sender import send_video
+        from utils import check_file_duration, cleanup_file
+
         # Get or generate animal name
         if args.animal_name:
             animal_name = args.animal_name.strip()
@@ -138,7 +140,9 @@ def main():
                 "WhatsApp chat ID not set. Please set the WHATSAPP_CHAT_ID environment variable."
             )
         else:
-            send_video(video_file_path, chat_id)
+            success = send_video(video_file_path, chat_id)
+            if not success:
+                logger.warning("Failed to send video via WhatsApp, but continuing...")
 
         # Clean up audio file
         cleanup_file(audio_file_path)

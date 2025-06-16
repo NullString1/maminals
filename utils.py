@@ -18,25 +18,24 @@ def check_file_duration(file_path: str, min_duration: float = 30.0) -> bool:
         bool: True if duration meets requirement, False otherwise.
     """
     try:
+        # More efficient duration check using csv output
         result = subprocess.run(
             [
                 "ffprobe",
-                "-v",
-                "error",
-                "-show_entries",
-                "format=duration",
-                "-of",
-                "json",
+                "-v", "quiet",
+                "-show_entries", "format=duration",
+                "-of", "csv=p=0",
                 str(file_path),
             ],
             capture_output=True,
             text=True,
             check=True,
+            timeout=10,
         )
-        duration = float(loads(result.stdout)["format"]["duration"])
+        duration = float(result.stdout.strip())
         logger.info(f"File {file_path} duration: {duration:.2f} seconds")
         return duration >= min_duration
-    except (subprocess.CalledProcessError, KeyError, ValueError, TypeError) as e:
+    except (subprocess.CalledProcessError, ValueError, subprocess.TimeoutExpired) as e:
         logger.error(f"Error checking duration for {file_path}: {e}")
         return False
 

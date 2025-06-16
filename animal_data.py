@@ -78,6 +78,7 @@ def save_animal_name(animal_name: str) -> None:
 def generate_animal_info(animal_name: str) -> str:
     """
     Generate a string containing information about the given animal.
+    Uses caching to avoid repeated API calls for the same animal.
 
     Args:
         animal_name (str): The name of the animal.
@@ -85,31 +86,49 @@ def generate_animal_info(animal_name: str) -> str:
     Returns:
         str: A string containing the animal's name and a brief description.
     """
+    from cache import cached_animal_info, cache_animal_info
+    
+    # Check cache first
+    cached_info = cached_animal_info(animal_name)
+    if cached_info:
+        logger.info(f"Using cached info for {animal_name}")
+        return cached_info
+    
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         raise ValueError(
             "API key not found. Please set the OPENROUTER_API_KEY environment variable."
         )
-    response = post(
-        url="https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        data=dumps(
-            {
-                "model": "google/gemma-3n-e4b-it:free",
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": f"Give me a brief description of the animal named {animal_name}. Use information from wikipedia and other reliable sources. Include its habitat, diet, size, scientific name and any interesting facts. The response should be concise and informative, suitable for a general audience. The response will be read out loud by a text-to-speech system, so it should be clear and easy to understand. Return the information in a single paragraph without any additional text or formatting.",
-                    }
-                ],
-            }
-        ),
-    )
-    if response.status_code == 200:
+    
+    try:
+        response = post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            data=dumps(
+                {
+                    "model": "google/gemma-3n-e4b-it:free",
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": f"Give me a brief description of the animal named {animal_name}. Use information from wikipedia and other reliable sources. Include its habitat, diet, size, scientific name and any interesting facts. The response should be concise and informative, suitable for a general audience. The response will be read out loud by a text-to-speech system, so it should be clear and easy to understand. Return the information in a single paragraph without any additional text or formatting.",
+                        }
+                    ],
+                }
+            ),
+            timeout=30,
+        )
+        response.raise_for_status()
         data = response.json()
-        return data["choices"][0]["message"]["content"].strip()
-    else:
-        return f"Error: {response.status_code} - {response.text}"
+        animal_info = data["choices"][0]["message"]["content"].strip()
+        
+        # Cache the result
+        cache_animal_info(animal_name, animal_info)
+        return animal_info
+        
+    except Exception as e:
+        error_msg = f"Error generating animal info: {e}"
+        logger.error(error_msg)
+        return f"Error: {error_msg}"

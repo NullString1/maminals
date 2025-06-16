@@ -41,35 +41,42 @@ def download_images(
                 valid_exts = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp")
                 url_lower = image_url.lower()
                 if not any(url_lower.endswith(ext) for ext in valid_exts):
-                    logger.info(f"Skipping non-image URL: {image_url}")
+                    logger.debug(f"Skipping non-image URL: {image_url}")
                     return None
                 filename = image_url.split("/")[-1]
+            
             filename = sanitize_filename(filename)
             output_path = OUTPUT_IMAGE_DIR / filename
+            
+            # Skip if file already exists
+            if output_path.exists():
+                logger.debug(f"Image already exists: {output_path}")
+                return str(output_path)
+            
             try:
                 response = get(
                     image_url,
                     stream=True,
+                    timeout=(5, 30),  # 5s connect, 30s read timeout
                     headers={
                         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
                     },
                 )
+                response.raise_for_status()  # Raise exception for bad status codes
             except Exception as e:
                 logger.warning(f"Error requesting {image_url}: {e}")
                 return None
-            if response.status_code == 200:
-                try:
-                    with open(output_path, "wb") as f:
-                        for chunk in response.iter_content(1024):
+            
+            try:
+                with open(output_path, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192):  # Larger chunks
+                        if chunk:
                             f.write(chunk)
-                    return str(output_path)
-                except Exception as e:
-                    logger.warning(f"Error saving image {output_path}: {e}")
-                    return None
-            else:
-                logger.warning(
-                    f"Failed to download {image_url}: Status code {response.status_code}"
-                )
+                return str(output_path)
+            except Exception as e:
+                logger.warning(f"Error saving image {output_path}: {e}")
+                # Clean up partial file
+                output_path.unlink(missing_ok=True)
                 return None
         except Exception as e:
             logger.warning(f"Error processing image URL {image_url}: {e}")
@@ -90,6 +97,7 @@ def download_images(
 def get_animal_photo_urls_unsplash(animal_name: str) -> list[str] | str:
     """
     Retrieve the URLs of the first 25 images of the animal from Unsplash.
+    Uses caching to avoid repeated API calls.
 
     Args:
         animal_name (str): Name of the animal to search for.
@@ -97,32 +105,50 @@ def get_animal_photo_urls_unsplash(animal_name: str) -> list[str] | str:
     Returns:
         list[str] | str: List of image URLs or error message.
     """
+    from cache import cached_image_urls, cache_image_urls
+    
+    # Check cache first
+    cached_urls = cached_image_urls(animal_name, "unsplash")
+    if cached_urls:
+        logger.info(f"Using cached Unsplash URLs for {animal_name}")
+        return cached_urls
+    
     access_key = os.getenv("UNSPLASH_ACCESS_KEY")
     if not access_key:
         raise ValueError(
             "Unsplash API access key not found. Please set the UNSPLASH_ACCESS_KEY environment variable."
         )
+    
     url = "https://api.unsplash.com/search/photos"
     params = {"query": animal_name, "per_page": 25, "client_id": access_key}
-    response = get(url, params=params)
-    if response.status_code == 200:
+    
+    try:
+        response = get(url, params=params, timeout=10)
+        response.raise_for_status()
         data = response.json()
         results = data.get("results", [])
+        
         if results:
-            return [
+            image_urls = [
                 result["urls"]["regular"]
                 for result in results
                 if "urls" in result and "regular" in result["urls"]
             ]
+            # Cache the result
+            cache_image_urls(animal_name, "unsplash", image_urls)
+            return image_urls
         else:
             return "No images found."
-    else:
-        return f"Error: {response.status_code} - {response.text}"
+    except Exception as e:
+        error_msg = f"Error: {e}"
+        logger.error(f"Unsplash API error for {animal_name}: {e}")
+        return error_msg
 
 
 def get_animal_photo_urls_wikimedia(animal_name: str) -> list[str] | str:
     """
-    Retrieve URLs of animal images from Wikimedia Commons
+    Retrieve URLs of animal images from Wikimedia Commons.
+    Uses caching to avoid repeated API calls.
 
     Args:
         animal_name (str): Name of the animal to search for.
@@ -130,6 +156,14 @@ def get_animal_photo_urls_wikimedia(animal_name: str) -> list[str] | str:
     Returns:
         list[str] | str: List of image URLs or error message.
     """
+    from cache import cached_image_urls, cache_image_urls
+    
+    # Check cache first
+    cached_urls = cached_image_urls(animal_name, "wikimedia")
+    if cached_urls:
+        logger.info(f"Using cached Wikimedia URLs for {animal_name}")
+        return cached_urls
+    
     url = "https://commons.wikimedia.org/w/api.php"
     params = {
         "action": "query",
@@ -143,22 +177,25 @@ def get_animal_photo_urls_wikimedia(animal_name: str) -> list[str] | str:
     }
     try:
         response = get(url, params=params, timeout=10)
-        print(response.text)
-        if response.status_code == 200:
-            data = response.json()
-            pages = data.get("query", {}).get("pages", {})
-            image_urls = []
-            for page in pages.values():
-                imageinfo = page.get("imageinfo", [])
-                if imageinfo:
-                    image_urls.append(
-                        imageinfo[0].get("thumburl") or imageinfo[0].get("url")
-                    )
-            if image_urls:
-                return image_urls
-            else:
-                return "No images found."
+        response.raise_for_status()
+        data = response.json()
+        pages = data.get("query", {}).get("pages", {})
+        image_urls = []
+        
+        for page in pages.values():
+            imageinfo = page.get("imageinfo", [])
+            if imageinfo:
+                image_url = imageinfo[0].get("thumburl") or imageinfo[0].get("url")
+                if image_url:
+                    image_urls.append(image_url)
+        
+        if image_urls:
+            # Cache the result
+            cache_image_urls(animal_name, "wikimedia", image_urls)
+            return image_urls
         else:
-            return f"Error: {response.status_code} - {response.text}"
+            return "No images found."
     except Exception as e:
-        return f"Error: {e}"
+        error_msg = f"Error: {e}"
+        logger.error(f"Wikimedia API error for {animal_name}: {e}")
+        return error_msg
