@@ -2,6 +2,20 @@
 
 **Maminals** is an "Animal of the Day" generator that uses AI to fetch animal facts, generate TTS audio, download images (from Wikimedia Commons or Unsplash), create a video, and send it to a WhatsApp group.
 
+## Project Structure
+
+The project has been modularized into the following components:
+
+- **`config.py`** - Configuration settings and constants
+- **`animal_data.py`** - Animal name generation and information retrieval
+- **`image_handler.py`** - Image downloading from Wikimedia Commons and Unsplash
+- **`audio_generator.py`** - Text-to-speech audio generation using Coqui TTS
+- **`video_creator.py`** - Video creation using FFmpeg
+- **`whatsapp_sender.py`** - WhatsApp integration for sending videos
+- **`utils.py`** - Utility functions for file operations and validation
+- **`main.py`** - Main orchestration and CLI interface
+- **`__init__.py`** - Package initialization
+
 ## Features
 - Fetches a random animal name using OpenRouter AI
 - Generates a concise animal description using OpenRouter AI
@@ -54,6 +68,33 @@ export OPENROUTER_API_KEY=sk-...  # your OpenRouter key
 export UNSPLASH_ACCESS_KEY=...    # your Unsplash key (optional, fallback)
 export WHATSAPP_CHAT_ID=...@g.us  # WhatsApp chat id (optional)
 python main.py "Pangolin"
+```
+
+### Programmatic Usage
+
+You can also import and use the individual modules in your own Python code:
+
+```python
+from animal_data import get_animal_name, generate_animal_info
+from image_handler import download_images, get_animal_photo_urls_wikimedia
+from audio_generator import generate_audio
+from video_creator import create_video_from_audio_and_images
+from whatsapp_sender import send_video
+
+# Generate animal content
+animal_name = get_animal_name()
+animal_info = generate_animal_info(animal_name)
+
+# Get images
+image_urls = get_animal_photo_urls_wikimedia(animal_name)
+image_paths = download_images(image_urls, animal_name)
+
+# Generate audio and video
+audio_path = generate_audio(animal_name, animal_info)
+video_path = create_video_from_audio_and_images(audio_path, image_paths, animal_name)
+
+# Send via WhatsApp (optional)
+send_video(video_path, "your_chat_id@g.us")
 ```
 
 ## Output
