@@ -24,12 +24,18 @@ def get_animal_name(animal_list_path: Path = Path("animal_names.json")) -> str:
         )
 
     animal_list = animal_list_path.read_text(encoding="utf-8")
-    animal_list = loads(animal_list)
-
+    animal_list: list[str] = loads(animal_list)
+    
     if not animal_list:
         raise ValueError(
             "Animal names list is empty. Please check the animal_names.json file."
         )
+    
+    for prev in read_previous_animal_names():
+        try:
+            animal_list.remove(prev)
+        except ValueError:
+            continue
 
     animal_name = random.choice(animal_list).strip()
     if not animal_name:
@@ -37,13 +43,6 @@ def get_animal_name(animal_list_path: Path = Path("animal_names.json")) -> str:
             "Generated animal name is empty. Please check the animal_names.json file."
         )
     logger.info(f"Generated animal name: {animal_name}")
-
-    previous_names = read_previous_animal_names()
-    if animal_name in previous_names:
-        logger.warning(
-            f"Generated animal name '{animal_name}' has been used before. Generating a new name..."
-        )
-        return get_animal_name(animal_list_path)
 
     return animal_name
 
