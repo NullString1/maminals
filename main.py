@@ -152,6 +152,7 @@ def main():
             animal_name,
             keep_images=args.keep_images,
             vf_filter=custom_filter,
+            text=animal_info,
         )
         if video_file_path == "":
             logger.error("Failed to create video from audio and images.")

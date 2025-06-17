@@ -32,7 +32,8 @@
             pkgs.ffmpeg
           ];
           LD_LIBRARY_PATH = "${pkgs.stdenv.cc.cc.lib}/lib";
-          UV_PYTHON_DOWNLOADS="never";
+          UV_PYTHON_DOWNLOADS = "never";
+          PHONEMIZER_ESPEAK_LIBRARY = "${pkgs.espeak}/lib/libespeak-ng.so";
         };
       }
     );

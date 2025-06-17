@@ -8,5 +8,8 @@ dependencies = [
     "coqui-tts>=0.26.2",
     "ffmpeg>=1.4",
     "ipykernel>=6.29.5",
-    "requests>=2.32.3"
+    "moviepy>=2.2.1",
+    "requests>=2.32.3",
+    "phonemizer>=3.2.1",
+    "librosa>=0.10.1",
 ]
