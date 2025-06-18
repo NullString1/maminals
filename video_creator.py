@@ -11,62 +11,13 @@ from moviepy.video.io.VideoFileClip import VideoFileClip
 from moviepy.audio.io.AudioFileClip import AudioFileClip
 from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
 from config import OUTPUT_VIDEO_DIR, FFMPEG_FPS, FFMPEG_RESOLUTION, logger
-
-
-def estimate_word_timings(text: str, audio_duration: float) -> List[Tuple[str, float, float]]:
-    """
-    Estimate word timings based on audio duration.
-    Returns a list of (word, start_time, end_time) tuples.
-    
-    Args:
-        text (str): The text to create timings for
-        audio_duration (float): Total duration of the audio in seconds
-        
-    Returns:
-        List[Tuple[str, float, float]]: List of (word, start_time, end_time)
-    """
-    # Clean and split text into words
-    words = re.findall(r'\b\w+\b', text.lower())
-    if not words:
-        return []
-    
-    # Estimate average speaking rate (words per minute)
-    # Typical speaking rate is 150-200 wpm, we'll use 160
-    words_per_minute = 160
-    words_per_second = words_per_minute / 60
-    
-    # Calculate time per word based on actual audio duration vs estimated duration
-    estimated_duration = len(words) / words_per_second
-    time_scale = audio_duration / estimated_duration if estimated_duration > 0 else 1
-    
-    word_timings = []
-    current_time = 0.0
-    
-    for word in words:
-        # Estimate duration based on word length and complexity
-        base_duration = 0.4  # Base 400ms per word
-        length_factor = max(0.1, len(word) / 8)  # Longer words take more time
-        word_duration = base_duration * length_factor * time_scale
-        
-        # Add small pauses for punctuation and breathing
-        if word.endswith(('.', '!', '?')):
-            word_duration += 0.3 * time_scale
-        elif word.endswith(','):
-            word_duration += 0.2 * time_scale
-            
-        start_time = current_time
-        end_time = current_time + word_duration
-        
-        word_timings.append((word, start_time, end_time))
-        current_time = end_time
-    
-    return word_timings
+from audio_generator import estimate_word_timings_simple
 
 
 def create_subtitle_clips(word_timings: List[Tuple[str, float, float]], 
                          video_width: int, video_height: int) -> List[TextClip]:
     """
-    Create subtitle text clips with word-level highlighting.
+    Create subtitle text clips displaying complete sentences with multiple lines.
     
     Args:
         word_timings: List of (word, start_time, end_time) tuples
@@ -78,42 +29,43 @@ def create_subtitle_clips(word_timings: List[Tuple[str, float, float]],
     """
     subtitle_clips = []
     
-    # Group words into sentences or phrases for better display
-    current_text = []
+    # Group words into complete sentences
+    current_sentence = []
     current_start = 0
     
     for i, (word, start_time, end_time) in enumerate(word_timings):
-        if not current_text:
+        if not current_sentence:
             current_start = start_time
             
-        current_text.append(word)
+        current_sentence.append(word)
         
-        # End phrase on punctuation or every 8-10 words
-        should_end_phrase = (
-            word.endswith(('.', '!', '?')) or 
-            len(current_text) >= 8 or 
-            i == len(word_timings) - 1
-        )
+        # End sentence on sentence-ending punctuation
+        is_sentence_end = word.endswith(('.', '!', '?'))
+        is_last_word = i == len(word_timings) - 1
         
-        if should_end_phrase:
-            phrase = ' '.join(current_text)
-            phrase_duration = end_time - current_start
+        # Also break on very long sentences (more than 25 words) or commas after long phrases
+        is_long_sentence = len(current_sentence) >= 25
+        is_comma_break = word.endswith(',') and len(current_sentence) >= 15
+        
+        if is_sentence_end or is_last_word or is_long_sentence or is_comma_break:
+            sentence_text = ' '.join(current_sentence)
+            sentence_duration = end_time - current_start
             
-            # Create text clip for the phrase
+            # Create multi-line text clip for the complete sentence
             txt_clip = TextClip(
-                text=phrase,
-                font_size=32,
+                text=sentence_text,
+                font_size=22,
                 color='black',
-                size=(video_width // 2 - 40, None),  # Right half of screen minus padding
+                size=(video_width - 100, 22*10),  # Allow height to auto-adjust for multiple lines
                 method='caption',
-                duration=phrase_duration
+                duration=sentence_duration
             ).with_start(current_start)
             
-            # Position on the right side of the screen
-            txt_clip = txt_clip.with_position((video_width // 2 + 20, 'center'))
+            # Position in the bottom third of the screen with more space for multiple lines
+            txt_clip = txt_clip.with_position(('center', video_height * 0.70))
             
             subtitle_clips.append(txt_clip)
-            current_text = []
+            current_sentence = []
     
     return subtitle_clips
 
@@ -171,23 +123,43 @@ def create_video_from_audio_and_images(
         # Create white background
         background = ColorClip(size=(video_width, video_height), color=(255, 255, 255), duration=duration)
         
-        # Create image slideshow for the left half of the screen
+        # Create image slideshow centered on screen with minimum duration
         image_clips = []
-        image_duration = duration / len(image_paths) if len(image_paths) > 1 else duration
+        min_image_duration = 1.5
+        
+        max_images = int(duration // min_image_duration)
+        if max_images < 1:
+            max_images = 1
+        image_paths = image_paths[:max_images]
+        image_duration = duration / len(image_paths)
+        total_min_duration = min_image_duration * len(image_paths)
+        overlap_factor = 1.0  # No overlap needed since we fit exactly
         
         for i, image_path in enumerate(image_paths):
             try:
-                # Load and resize image to fit left half of screen
+                # Load and resize image to fit in upper portion of screen
                 img_clip = ImageClip(image_path, duration=image_duration)
                 
-                # Resize image to fit in left half while maintaining aspect ratio
-                img_clip = img_clip.resized(height=video_height * 0.8)
-                if img_clip.w > video_width // 2:
-                    img_clip = img_clip.resized(width=video_width // 2 - 20)
+                # Resize image to fit in upper 2/3 of screen while maintaining aspect ratio
+                max_height = video_height * 0.8  # Use 80% of screen height for images
+                max_width = video_width * 0.95   # Use 95% of screen width for images
+
+                # Resize maintaining aspect ratio
+                if img_clip.h > max_height:
+                    img_clip = img_clip.resized(height=max_height)
+                if img_clip.w > max_width:
+                    img_clip = img_clip.resized(width=max_width)
                 
-                # Position image on the left side, centered
-                img_clip = img_clip.with_position(((video_width // 2 - img_clip.w) // 2, 'center'))
-                img_clip = img_clip.with_start(i * image_duration)
+                # Center the image horizontally and position in upper portion
+                img_clip = img_clip.with_position(('center', video_height * 0.15))
+                
+                # Handle overlapping if needed
+                if total_min_duration > duration:
+                    start_time = i * (duration * overlap_factor / len(image_paths))
+                else:
+                    start_time = i * image_duration
+                    
+                img_clip = img_clip.with_start(start_time)
                 
                 image_clips.append(img_clip)
                 
@@ -201,9 +173,9 @@ def create_video_from_audio_and_images(
                 text=animal_name,
                 font_size=48,
                 color='black',
-                size=(video_width // 2 - 40, None),
+                size=(video_width - 40, None),
                 duration=duration
-            ).with_position((20, 'center'))
+            ).with_position(('center', video_height * 0.3))
             image_clips = [placeholder]
         
         # Generate word timings for subtitles - try to load from file first
@@ -223,7 +195,7 @@ def create_video_from_audio_and_images(
         # Fall back to estimation if no timings file found
         if not word_timings:
             logger.info("No timing file found, using estimation")
-            word_timings = estimate_word_timings(text, duration)
+            word_timings = estimate_word_timings_simple(text, duration)
         
         # Create subtitle clips
         subtitle_clips = create_subtitle_clips(word_timings, video_width, video_height)

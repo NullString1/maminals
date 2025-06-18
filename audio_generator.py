@@ -29,8 +29,8 @@ def extract_word_timings_from_audio(text: str, audio_path: str) -> List[Tuple[st
         audio, sr = librosa.load(audio_path, sr=22050)
         duration = len(audio) / sr
         
-        # Clean and split text into words
-        words = re.findall(r'\b\w+\b', text)
+        # Split text into words while preserving punctuation
+        words = re.findall(r'\S+', text)  # This captures non-whitespace sequences including punctuation
         if not words:
             return []
         
@@ -122,8 +122,8 @@ def estimate_word_timings_simple(text: str, audio_duration: float) -> List[Tuple
     Returns:
         List[Tuple[str, float, float]]: List of (word, start_time, end_time)
     """
-    # Clean and split text into words
-    words = re.findall(r'\b\w+\b', text)
+    # Split text into words while preserving punctuation
+    words = re.findall(r'\S+', text)  # This captures non-whitespace sequences including punctuation
     if not words:
         return []
     
